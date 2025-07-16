@@ -1,0 +1,5 @@
+opencv-python
+pillow
+requests
+numpy
+huggingface-cli
