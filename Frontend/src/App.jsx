@@ -10,7 +10,7 @@ import {
   useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Shield, Share2, Menu, Search, Moon, Sun } from 'lucide-react';
+import { Shield, Share2, Menu, Search, Moon, Sun, Play, Square } from 'lucide-react';
 
 import ScreenshotNode from './components/ScreenshotNode';
 import NodeDetailsModal from './components/NodeDetailsModal';
@@ -65,6 +65,7 @@ const getLayoutedElements = (nodes, edges, direction = 'LR') => {
 };
 
 function App() {
+  console.log('🚀 App component rendering...');
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -97,95 +98,204 @@ function App() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
-  const [adbStatus, setAdbStatus] = useState({ connected: false, device: null });
+  const [adbStatus, setAdbStatus] = useState({ status: 'disconnected', device: null });
+
+  // Load data function (extracted for reuse)
+  const fetchGraphData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setLoadError(null);
+
+      const response = await fetch(`${API_BASE_URL}/api/graph`, {
+        signal: AbortSignal.timeout(5000), // 5 second timeout
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load graph data (${response.status})`);
+      }
+
+      const payload = await response.json();
+
+      const normalizedNodes = (payload.nodes || []).map((node) => ({
+        ...node,
+        position: node.position || { x: 0, y: 0 },
+        data: {
+          label: node.data?.label ?? node.label ?? 'Untitled Node',
+          description: node.data?.description ?? node.description ?? '',
+          screenshot: node.data?.screenshot ?? node.screenshot ?? null,
+          annotatedScreenshot: node.data?.annotatedScreenshot ?? null,
+          traffic: node.data?.traffic ?? [],
+          parser: node.data?.parser ?? node.parser ?? null,
+        },
+      }));
+
+      const normalizedEdges = (payload.edges || []).map((edge) => ({
+        id: edge.id || `${edge.source_node_id}-${edge.target_node_id}`,
+        source: edge.source ?? edge.source_node_id,
+        target: edge.target ?? edge.target_node_id,
+        label: edge.label,
+        animated: edge.animated === undefined ? true : Boolean(edge.animated),
+      }));
+
+      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+        normalizedNodes,
+        normalizedEdges
+      );
+
+      setNodes(layoutedNodes);
+      setEdges(layoutedEdges);
+    } catch (error) {
+      console.error('Failed to load graph data:', error);
+      setLoadError(error.message);
+      // Initialize with empty graph on error so UI is visible
+      setNodes([]);
+      setEdges([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [setNodes, setEdges]);
+
+  // WebSocket connection for live updates
+  useEffect(() => {
+    let ws = null;
+    let reconnectTimeout = null;
+    let shouldReconnect = true;
+
+    const connectWebSocket = async () => {
+      // Build WebSocket URL from API base URL
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+      let wsUrl;
+
+      if (apiBaseUrl.startsWith('http://')) {
+        wsUrl = apiBaseUrl.replace('http://', 'ws://') + '/ws';
+      } else if (apiBaseUrl.startsWith('https://')) {
+        wsUrl = apiBaseUrl.replace('https://', 'wss://') + '/ws';
+      } else {
+        // Assume it's just host:port
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${apiBaseUrl}/ws`;
+      }
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log('✅ WebSocket connected');
+          // Clear any pending reconnection
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === 'graph_updated') {
+              console.log('📡 Graph update received:', message.message);
+              // Refresh graph data when update is received
+              fetchGraphData();
+            } else if (message.type === 'adb_status') {
+              // Real-time ADB status update with full details
+              console.log('📱 ADB status update received (WebSocket):', message);
+              setAdbStatus({
+                status: message.status,           // connected | disconnected | unauthorized | offline | adb_missing | error
+                device: message.device || null,   // Device serial
+                message: message.message || 'Unknown status'  // Human-readable message
+              });
+            } else if (message.type === 'pong') {
+              // Handle pong response if needed
+            }
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+          console.log('❌ WebSocket disconnected');
+          ws = null;
+
+          // Attempt to reconnect after 3 seconds if we should still be connected
+          if (shouldReconnect) {
+            reconnectTimeout = setTimeout(() => {
+              console.log('🔄 Attempting to reconnect WebSocket...');
+              connectWebSocket();
+            }, 3000);
+          }
+        };
+      } catch (error) {
+        console.error('WebSocket connection error:', error);
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      shouldReconnect = false;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [fetchGraphData]);
 
   // Load data on mount
   useEffect(() => {
-    const controller = new AbortController();
-
-    const fetchGraphData = async () => {
-      try {
-        setIsLoading(true);
-        setLoadError(null);
-
-        const response = await fetch(`${API_BASE_URL}/api/graph`, {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to load graph data (${response.status})`);
-        }
-
-        const payload = await response.json();
-
-        const normalizedNodes = (payload.nodes || []).map((node) => ({
-          ...node,
-          position: node.position || { x: 0, y: 0 },
-          data: {
-            label: node.data?.label ?? node.label ?? 'Untitled Node',
-            description: node.data?.description ?? node.description ?? '',
-            screenshot: node.data?.screenshot ?? node.screenshot ?? null,
-            annotatedScreenshot: node.data?.annotatedScreenshot ?? null,
-            traffic: node.data?.traffic ?? [],
-            parser: node.data?.parser ?? node.parser ?? null,
-          },
-        }));
-
-        const normalizedEdges = (payload.edges || []).map((edge) => ({
-          id: edge.id || `${edge.source_node_id}-${edge.target_node_id}`,
-          source: edge.source ?? edge.source_node_id,
-          target: edge.target ?? edge.target_node_id,
-          label: edge.label,
-          animated: edge.animated === undefined ? true : Boolean(edge.animated),
-        }));
-
-        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-          normalizedNodes,
-          normalizedEdges
-        );
-
-        setNodes(layoutedNodes);
-        setEdges(layoutedEdges);
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        console.error('Failed to load graph data:', error);
-        setLoadError(error.message);
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
     fetchGraphData();
-
-    return () => controller.abort();
-  }, [setNodes, setEdges]);
-
-  // Poll ADB status
-  useEffect(() => {
-    const fetchAdbStatus = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/adb/status`);
-        if (response.ok) {
-          const data = await response.json();
-          setAdbStatus(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch ADB status:', error);
-        setAdbStatus({ connected: false, device: null });
-      }
-    };
-
-    // Fetch immediately
-    fetchAdbStatus();
-
-    // Poll every 3 seconds
-    const interval = setInterval(fetchAdbStatus, 3000);
-
-    return () => clearInterval(interval);
-  }, []);
+  }, [fetchGraphData]);
   // ... rest of the component
+
+  const [isRecording, setIsRecording] = useState(false);
+  const isCapturingRef = React.useRef(false); // Prevent concurrent captures
+
+  // Single screenshot capture
+  useEffect(() => {
+    if (isRecording) {
+      const captureScreen = async () => {
+        // Guard against concurrent requests
+        if (isCapturingRef.current) {
+          console.log("Capture already in progress, skipping...");
+          return;
+        }
+
+        isCapturingRef.current = true;
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/analyze-screen`, {
+            method: 'POST',
+          });
+          if (!response.ok) {
+            console.error("Capture failed");
+            setIsRecording(false); // Stop on error
+          } else {
+            console.log("✅ Screen captured successfully");
+            // WebSocket will trigger graph update automatically
+            setIsRecording(false); // Stop after one capture
+          }
+        } catch (error) {
+          console.error("Capture error:", error);
+          setIsRecording(false);
+        } finally {
+          isCapturingRef.current = false;
+        }
+      };
+
+      // Capture once
+      captureScreen();
+    } else {
+      // Reset the capturing flag when stopping
+      isCapturingRef.current = false;
+    }
+
+    return () => {
+      isCapturingRef.current = false;
+    };
+  }, [isRecording, setNodes, setEdges]);
 
   const resetVisuals = useCallback(() => {
     setNodes((nds) =>
@@ -353,6 +463,36 @@ function App() {
     setModalNode(null);
   }, []);
 
+  const deleteNode = useCallback(async () => {
+    if (!selectedNode) return;
+
+    const nodeIdToDelete = selectedNode.id;
+
+    try {
+      // Delete on backend (DB + screenshots)
+      const response = await fetch(`${API_BASE_URL}/api/nodes/${encodeURIComponent(nodeIdToDelete)}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        console.error('Failed to delete node on server', response.status);
+        return;
+      }
+
+      // Optimistically update local graph state
+      setNodes((nds) => nds.filter((n) => n.id !== nodeIdToDelete));
+      setEdges((eds) => eds.filter((e) => e.source !== nodeIdToDelete && e.target !== nodeIdToDelete));
+
+      // Close the inspector and reset visuals
+      setSelectedNode(null);
+      resetVisuals();
+    } catch (error) {
+      console.error('Error deleting node:', error);
+    }
+  }, [selectedNode, setNodes, setEdges, resetVisuals]);
+
+  console.log('📱 About to render JSX, nodes:', nodes.length, 'edges:', edges.length);
+
   return (
     <div className="w-full h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-200">
       {/* Top Navigation Bar */}
@@ -390,6 +530,26 @@ function App() {
             {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
           </button>
           <div className="flex items-center gap-2 mr-4 border-r border-gray-200 dark:border-gray-700 pr-4">
+            <button
+              onClick={() => {
+                if (!isCapturingRef.current && adbStatus.status === 'connected') {
+                  setIsRecording(!isRecording);
+                }
+              }}
+              disabled={isCapturingRef.current || adbStatus.status !== 'connected'}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${isRecording
+                ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
+                : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50'
+                }`}
+              title={
+                adbStatus.status !== 'connected'
+                  ? "Device not connected"
+                  : (isRecording ? "Stop Capture" : "Start Capture")
+              }
+            >
+              {isRecording ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+              {isRecording ? "Stop" : "Start"}
+            </button>
             <button
               onClick={resetLayout}
               className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
@@ -437,7 +597,7 @@ function App() {
       </div>
 
       {/* Main Canvas Area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -449,30 +609,42 @@ function App() {
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
           fitView
-          className="bg-gray-50 dark:bg-gray-900 transition-colors duration-200"
         >
           <Background color={isDarkMode ? '#374151' : '#e5e7eb'} gap={20} size={1} />
           <Controls className="!bg-white dark:!bg-gray-800 !border-gray-200 dark:!border-gray-700 !shadow-lg !text-gray-600 dark:!text-gray-300 [&>button]:!border-b-gray-200 dark:[&>button]:!border-b-gray-700 [&>button:hover]:!bg-gray-50 dark:[&>button:hover]:!bg-gray-700" />
         </ReactFlow>
 
-        {(isLoading || loadError) && (
-          <div className="absolute inset-0 flex items-center justify-center">
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="px-6 py-4 bg-white/80 dark:bg-gray-900/80 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 text-center">
-              {isLoading ? (
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Loading graph data…</p>
-              ) : (
-                <>
-                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">Failed to load graph data</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{loadError}</p>
-                </>
-              )}
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Loading graph data…</p>
+            </div>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="absolute bottom-4 right-4 max-w-md pointer-events-auto">
+            <div className="px-4 py-3 bg-red-50 dark:bg-red-900/20 rounded-lg shadow-lg border border-red-200 dark:border-red-800">
+              <p className="text-sm font-semibold text-red-600 dark:text-red-400">Connection Error</p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1">{loadError}</p>
+              <p className="text-xs text-red-500 dark:text-red-500 mt-2">Make sure the backend is running at {API_BASE_URL}</p>
+              <button
+                onClick={() => {
+                  setIsLoading(true);
+                  setLoadError(null);
+                  fetchGraphData();
+                }}
+                className="mt-2 text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              >
+                Retry
+              </button>
             </div>
           </div>
         )}
 
         {/* Inspector Panel Overlay */}
         {selectedNode && (
-          <InspectorPanel node={selectedNode} onClose={closeInspector} />
+          <InspectorPanel node={selectedNode} onClose={closeInspector} onDelete={deleteNode} />
         )}
 
         {/* Node Details Modal */}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Smartphone, Activity, Globe, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Smartphone, Activity, Globe, Clock, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 
-const InspectorPanel = ({ node, onClose }) => {
+const InspectorPanel = ({ node, onClose, onDelete }) => {
     const [activeTab, setActiveTab] = useState('context');
 
     if (!node) return null;
@@ -23,12 +23,21 @@ const InspectorPanel = ({ node, onClose }) => {
                         <p className="text-xs text-gray-500 dark:text-gray-400">ID: {node.id}</p>
                     </div>
                 </div>
-                <button
-                    onClick={onClose}
-                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md text-gray-500 dark:text-gray-400 transition-colors"
-                >
-                    <X size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={onDelete}
+                        className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-md text-red-500 dark:text-red-400 transition-colors"
+                        title="Delete Node"
+                    >
+                        <Trash2 size={18} />
+                    </button>
+                    <button
+                        onClick={onClose}
+                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-md text-gray-500 dark:text-gray-400 transition-colors"
+                    >
+                        <X size={18} />
+                    </button>
+                </div>
             </div>
 
             {/* Tabs */}
@@ -36,27 +45,27 @@ const InspectorPanel = ({ node, onClose }) => {
                 <button
                     onClick={() => setActiveTab('context')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'context'
-                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }`}
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        } `}
                 >
                     Context
                 </button>
                 <button
                     onClick={() => setActiveTab('traffic')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'traffic'
-                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }`}
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        } `}
                 >
                     Traffic ({data.traffic?.length || 0})
                 </button>
                 <button
                     onClick={() => setActiveTab('parser')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'parser'
-                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }`}
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        } `}
                 >
                     Parser ({parserItems.length || 0})
                 </button>
@@ -99,10 +108,10 @@ const InspectorPanel = ({ node, onClose }) => {
                                 <div key={idx} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:shadow-sm transition-shadow">
                                     <div className="flex items-center justify-between mb-2">
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${req.method === 'GET' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                            req.method === 'POST' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                req.method === 'DELETE' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                                                    'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                                            }`}>
+                                                req.method === 'POST' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                                    req.method === 'DELETE' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                                        'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                            } `}>
                                             {req.method}
                                         </span>
                                         <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -121,7 +130,7 @@ const InspectorPanel = ({ node, onClose }) => {
                                             <AlertCircle size={12} className="text-amber-500" />
                                         )}
                                         <span className={`text-xs font-medium ${req.status >= 200 && req.status < 300 ? 'text-green-600' : 'text-amber-600'
-                                            }`}>
+                                            } `}>
                                             Status {req.status}
                                         </span>
                                     </div>
@@ -157,9 +166,9 @@ const InspectorPanel = ({ node, onClose }) => {
                                                 </span>
                                                 <span
                                                     className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${item.interactivity
-                                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-                                                        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                                                        }`}
+                                                            ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
+                                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                                        } `}
                                                 >
                                                     {item.interactivity ? 'Interactive' : 'Static'}
                                                 </span>
