@@ -2,13 +2,22 @@
 
 # ActiveMotion Quick Start Script
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Ensure script runs only on Linux or macOS
+if [[ "$OSTYPE" != "linux-gnu"* && "$OSTYPE" != "darwin"* ]]; then
+    echo -e "${YELLOW}⚠️  This script is only supported on Linux or macOS.${NC}"
+    exit 1
+fi
+
+set -e
 
 echo -e "${BLUE}🚀 ActiveMotion Startup Script${NC}"
 echo ""
@@ -30,18 +39,12 @@ if [ ! -d "venv" ]; then
     python3 -m venv venv
 fi
 
-# Activate venv and install requirements
-source venv/bin/activate 2>/dev/null || . venv/Scripts/activate 2>/dev/null || true
-
-if [ ! -f "requirements.txt" ]; then
-    echo -e "${YELLOW}   requirements.txt not found${NC}"
-    exit 1
-fi
-
+# Activate venv and install dependencies
+source venv/bin/activate
 pip install -q -r requirements.txt 2>/dev/null || pip install -r requirements.txt
 
 # Start the backend in the background
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
+python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
 sleep 2
@@ -68,9 +71,9 @@ echo ""
 
 echo -e "${GREEN}🎉 ActiveMotion is ready!${NC}"
 echo ""
-echo "📍 Frontend:  ${BLUE}http://localhost:5173${NC}"
-echo "📍 Backend:   ${BLUE}http://localhost:8000${NC}"
-echo "📍 API Docs:  ${BLUE}http://localhost:8000/docs${NC}"
+echo -e "📍 Frontend:  ${BLUE}http://localhost:5173${NC}"
+echo -e "📍 Backend:   ${BLUE}http://localhost:8000${NC}"
+echo -e "📍 API Docs:  ${BLUE}http://localhost:8000/docs${NC}"
 echo ""
 echo "To stop: Press Ctrl+C"
 echo ""

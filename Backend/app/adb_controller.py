@@ -216,8 +216,22 @@ class ADBController:
         if not self.is_connected():
             raise Exception("Device not connected")
         
-        # Dump UI hierarchy
-        xml_data = self.device.shell("uiautomator dump /dev/tty")
+        # Dump UI hierarchy to a temp file on device
+        # Note: 'uiautomator dump' defaults to /sdcard/window_dump.xml
+        # We use a specific path to avoid conflicts or permission issues if possible, 
+        # but /sdcard/window_dump.xml is the standard default.
+        temp_path = "/sdcard/window_dump.xml"
+        
+        # Run dump command
+        # It might output "UI hierchary dumped to: ..." to stdout, so we ignore the return string of this command
+        self.device.shell(f"uiautomator dump {temp_path}")
+        
+        # Read the file content using cat
+        xml_data = self.device.shell(f"cat {temp_path}")
+        
+        # Optional: Clean up
+        # self.device.shell(f"rm {temp_path}")
+        
         return xml_data
     
     def tap(self, x: int, y: int):
@@ -301,18 +315,111 @@ class ADBController:
         Returns:
             Package name (e.g., 'com.android.chrome')
         """
+        info = self.get_current_activity_info()
+        return info["package"]
+
+    def get_current_activity_info(self) -> dict:
+        """
+        Get the currently running app package and activity name.
+        
+        Returns:
+            dict: {"package": str, "activity": str}
+        """
         if not self.is_connected():
             raise Exception("Device not connected")
         
-        result = self.device.shell("dumpsys window windows | grep -E 'mCurrentFocus'")
-        # Parse output to extract package name
-        if "Window{" in result:
-            parts = result.split()
-            for part in parts:
-                if "/" in part:
-                    package = part.split("/")[0]
-                    return package
-        return "unknown"
+        # Run dumpsys window (broader than 'windows' subcommand on some devices)
+        try:
+            result = self.device.shell("dumpsys window")
+        except Exception:
+            # Fallback or retry
+            return {"package": "unknown", "activity": "unknown"}
+        
+        package = "unknown"
+        activity = "unknown"
+        
+        # Parse output for mCurrentFocus
+        # Expected line: mCurrentFocus=Window{... u0 com.package/com.package.Activity}
+        for line in result.splitlines():
+            if "mCurrentFocus" in line and "Window{" in line:
+                # Clean up the string
+                clean_line = line.strip().rstrip('}')
+                parts = clean_line.split()
+                for part in parts:
+                    if "/" in part:
+                        try:
+                            # Split package/activity
+                            comp = part.split("/")
+                            if len(comp) >= 2:
+                                package = comp[0]
+                                activity = comp[1]
+                                
+                                # Handle relative activity names (starting with .)
+                                if activity.startswith("."):
+                                    activity = package + activity
+                                
+                                # Sometimes the part might have a closing brace
+                                if "}" in activity:
+                                    activity = activity.replace("}", "")
+                                
+                                break
+                        except Exception:
+                            pass
+                break
+        
+        return {"package": package, "activity": activity}
+
+    def save_device_info_snapshot(self, output_filename: Optional[str] = None, xml_data: Optional[str] = None, activity_info: Optional[dict] = None) -> str:
+        """
+        Retrieves Package Name, Activity Name, and XML Hierarchy, 
+        and saves them to a log file in the Data directory.
+        
+        Args:
+            output_filename: Optional filename. If None, generates one with timestamp.
+            xml_data: Optional pre-fetched XML hierarchy string.
+            activity_info: Optional pre-fetched activity info dict.
+        
+        Returns:
+            str: Path to the saved log file.
+        """
+        try:
+            if activity_info:
+                info = activity_info
+            else:
+                info = self.get_current_activity_info()
+            
+            if xml_data:
+                xml_hierarchy = xml_data
+            else:
+                xml_hierarchy = self.dump_hierarchy()
+            
+            # Define log directory: ActiveMotion/Data/logs
+            log_dir = BASE_DIR.parent / "Data" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+
+            if output_filename:
+                filename = output_filename
+            else:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"device_snapshot_{timestamp}.log"
+            
+            file_path = log_dir / filename
+            
+            content = f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            content += f"Package Name: {info['package']}\n"
+            content += f"Activity Name: {info['activity']}\n\n"
+            content += "--- XML Hierarchy ---\n"
+            content += xml_hierarchy
+            
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+            print(f"📝 Device info saved to: {file_path}")
+            return str(file_path)
+            
+        except Exception as e:
+            print(f"❌ Failed to save device info snapshot: {e}")
+            raise e
 
 
 # Singleton instance

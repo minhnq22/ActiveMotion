@@ -12,6 +12,7 @@ import asyncio
 import threading
 
 # --- Configuration ---
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 app = FastAPI(title="Android Security Agent API")
 
 # --- WebSocket Connection Manager ---
@@ -227,11 +228,13 @@ DATA_DIR = os.path.join(os.path.dirname(BASE_DIR), "Data")
 DB_PATH = os.path.join(DATA_DIR, "app_data.db")
 SCREENSHOT_DIR = os.path.join(DATA_DIR, "screenshots")
 ANNOTATED_SCREENSHOT_DIR = os.path.join(DATA_DIR, "annotated_screenshots")
+LOGS_DIR = os.path.join(DATA_DIR, "logs")
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL", "http://localhost:8000")
 
 # Automatically create directories if they don't exist
 os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 os.makedirs(ANNOTATED_SCREENSHOT_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 # Mount static directories for Frontend to load images
 # Example: http://localhost:8000/screenshots/img1.png
@@ -241,6 +244,7 @@ app.mount(
     StaticFiles(directory=ANNOTATED_SCREENSHOT_DIR),
     name="annotated_screenshots",
 )
+app.mount("/logs", StaticFiles(directory=LOGS_DIR), name="logs")
 
 # --- Database Helper ---
 def get_db_connection():
@@ -336,9 +340,16 @@ def load_parser_outputs(conn: sqlite3.Connection) -> Dict[str, Dict]:
     for row in rows:
         parsed_list_raw = row["parsed_content_list"]
         label_coords_raw = row["label_coordinates"]
+        # Check if merged_content column exists (it might be missing in old rows or if column was just added)
+        # Since we used SELECT *, it should be in the row if the column exists in the table.
+        # However, sqlite3.Row keys are case-insensitive usually but let's be safe.
+        # If the column was added via ALTER TABLE, it will be null for old rows.
+        merged_content_raw = row["merged_content"] if "merged_content" in row.keys() else None
+        
         parser_by_node[row["node_id"]] = {
             "parsedContentList": json.loads(parsed_list_raw) if parsed_list_raw else [],
             "labelCoordinates": json.loads(label_coords_raw) if label_coords_raw else {},
+            "mergedContent": json.loads(merged_content_raw) if merged_content_raw else [],
         }
     return parser_by_node
 
@@ -372,6 +383,13 @@ def init_db():
         "nodes",
         "annotated_screenshot_path",
         "annotated_screenshot_path TEXT",
+    )
+
+    ensure_column(
+        cursor,
+        "nodes",
+        "snapshot_log_path",
+        "snapshot_log_path TEXT",
     )
     
     # Edges table
@@ -407,9 +425,18 @@ def init_db():
         node_id TEXT PRIMARY KEY,
         parsed_content_list TEXT,
         label_coordinates TEXT,
+        merged_content TEXT,
         FOREIGN KEY(node_id) REFERENCES nodes(id)
     )
     ''')
+
+    ensure_column(
+        cursor,
+        "parser_outputs",
+        "merged_content",
+        "merged_content TEXT",
+    )
+    
     
     conn.commit()
     conn.close()
@@ -445,6 +472,19 @@ def delete_node_and_related(node_id: str) -> None:
 
     screenshot_path = node_row["screenshot_path"]
     annotated_path = node_row["annotated_screenshot_path"]
+    # Check if column exists in row (it might not if using old row factory or partial select, 
+    # but here we selected specific columns. Wait, we need to select it.)
+    # Let's re-fetch or update the select query above.
+    # Actually, let's just fetch * to be safe or add it to the query.
+    pass 
+
+    # Re-fetching with correct query for simplicity in this edit block context
+    node_row_full = cursor.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+    if not node_row_full:
+         # Already handled
+         pass
+    
+    snapshot_log_path = node_row_full["snapshot_log_path"] if "snapshot_log_path" in node_row_full.keys() else None
 
     # Find all related edges
     edge_rows = cursor.execute(
@@ -493,6 +533,14 @@ def delete_node_and_related(node_id: str) -> None:
                 os.remove(full_annotated_path)
         except OSError:
             # Do not fail request if file deletion fails
+            pass
+
+    if snapshot_log_path:
+        try:
+            full_log_path = os.path.join(LOGS_DIR, snapshot_log_path)
+            if os.path.exists(full_log_path):
+                os.remove(full_log_path)
+        except OSError:
             pass
 
 
@@ -597,6 +645,9 @@ def get_graph_data():
                 "annotatedScreenshot": build_static_url(
                     node["annotated_screenshot_path"], "/annotated-screenshots"
                 ),
+                "snapshotLog": build_static_url(
+                    node["snapshot_log_path"] if "snapshot_log_path" in node.keys() else None, "/logs"
+                ),
                 "description": node["description"],
                 "traffic": traffic_by_node.get(node["id"], []),
                 "parser": parser_by_node.get(node["id"]),
@@ -627,6 +678,9 @@ def analyze_screen():
     except ImportError:
         from adb_controller import get_adb_controller
         from vision_engine import get_vision_engine
+        from util.hybrid_UI_element import generate_merged_json
+    else:
+        from .util.hybrid_UI_element import generate_merged_json
     import time
 
     # 1. Initialize Controllers
@@ -661,6 +715,34 @@ def analyze_screen():
     
     print(f"✅ Step complete: Captured {saved_filename}, found {len(parsed_content_list)} elements.")
 
+    # --- Merge: Save Device Info Snapshot & Generate Hybrid JSON ---
+    snapshot_filename = f"{node_id}.log"
+    merged_json = "[]"
+    
+    try:
+        # Fetch ADB data for merging
+        xml_hierarchy = adb.dump_hierarchy()
+        activity_info = adb.get_current_activity_info()
+        screen_w, screen_h = adb.get_screen_size()
+        
+        # Generate merged data
+        merged_json = generate_merged_json(xml_hierarchy, parsed_content_list, screen_w, screen_h)
+        print(f"✅ Merged ADB + Vision data generated.")
+
+        # Save snapshot using pre-fetched data
+        adb.save_device_info_snapshot(
+            output_filename=snapshot_filename, 
+            xml_data=xml_hierarchy, 
+            activity_info=activity_info
+        )
+        print(f"✅ Device info snapshot saved: {snapshot_filename}")
+        
+    except Exception as e:
+        print(f"⚠️ Failed to process ADB data or merge: {e}")
+        snapshot_filename = None
+        # If merge fails, we might want to fallback or just leave it empty
+    # ----------------------------------------
+
     # 4. Save to Database
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -668,28 +750,30 @@ def analyze_screen():
     # Save Node
     cursor.execute(
         """
-        INSERT INTO nodes (id, label, description, screenshot_path, annotated_screenshot_path)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO nodes (id, label, description, screenshot_path, annotated_screenshot_path, snapshot_log_path)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             node_id,
             f"Screen {timestamp}",
             f"Captured at {datetime.fromtimestamp(timestamp).strftime('%H:%M:%S')}",
             saved_filename,
-            annotated_filename
+            annotated_filename,
+            snapshot_filename
         )
     )
 
     # Save Parser Output
     cursor.execute(
         """
-        INSERT INTO parser_outputs (node_id, parsed_content_list, label_coordinates)
-        VALUES (?, ?, ?)
+        INSERT INTO parser_outputs (node_id, parsed_content_list, label_coordinates, merged_content)
+        VALUES (?, ?, ?, ?)
         """,
         (
             node_id,
             json.dumps(parsed_content_list),
             json.dumps(label_coordinates),
+            merged_json
         )
     )
     
@@ -709,9 +793,11 @@ def analyze_screen():
         "id": node_id,
         "screenshot_url": build_static_url(saved_filename, "/screenshots"),
         "annotated_screenshot_url": build_static_url(annotated_filename, "/annotated-screenshots"),
+        "snapshot_log_url": build_static_url(snapshot_filename, "/logs"),
         "parser": {
             "parsedContentList": parsed_content_list,
-            "labelCoordinates": label_coordinates
+            "labelCoordinates": label_coordinates,
+            "mergedContent": json.loads(merged_json) if merged_json else []
         }
     }
 
@@ -731,6 +817,28 @@ def delete_node(node_id: str):
     })
     
     return {"status": "deleted", "nodeId": node_id}
+
+
+@app.post("/api/adb/snapshot")
+def save_adb_snapshot():
+    """
+    Capture current device package, activity, and XML hierarchy to a log file.
+    """
+    try:
+        from .adb_controller import get_adb_controller
+    except ImportError:
+        from adb_controller import get_adb_controller
+    
+    adb = get_adb_controller()
+    
+    if not adb.is_connected():
+        raise HTTPException(status_code=400, detail="Device not connected")
+        
+    try:
+        file_path = adb.save_device_info_snapshot()
+        return {"status": "success", "file_path": file_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Run Server (For Debug) ---
 if __name__ == "__main__":

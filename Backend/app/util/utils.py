@@ -1,4 +1,5 @@
 import os
+import warnings
 import io
 import base64
 import time
@@ -115,11 +116,10 @@ def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2
     elif model_name == "florence2":
         try:
             from transformers import AutoProcessor, AutoModelForCausalLM
-            print("DEBUG: Successfully imported AutoProcessor and AutoModelForCausalLM in utils.py")
             processor = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
             model = AutoModelForCausalLM.from_pretrained(
                 model_name_or_path,
-                torch_dtype=dtype,
+                dtype=dtype,
                 trust_remote_code=True,
                 attn_implementation="eager",
             )
@@ -188,6 +188,15 @@ def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_
     """
     # Adjust batch size based on device for optimal performance
     model, processor = caption_model_processor['model'], caption_model_processor['processor']
+    
+    # Robust detection for Florence-2 model
+    is_florence = False
+    if hasattr(model, 'config'):
+        if hasattr(model.config, 'name_or_path') and 'florence' in str(model.config.name_or_path).lower():
+            is_florence = True
+        elif hasattr(model.config, 'model_type') and 'florence' in str(model.config.model_type).lower():
+            is_florence = True
+
     device = model.device if hasattr(model, 'device') else torch.device("cpu")
     
     if batch_size is None:
@@ -219,7 +228,7 @@ def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_
             continue
 
     if not prompt:
-        if hasattr(model, 'config') and hasattr(model.config, 'name_or_path') and 'florence' in model.config.name_or_path:
+        if is_florence:
             prompt = "<CAPTION>"
         else:
             prompt = "The image shows"
@@ -247,7 +256,7 @@ def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_
             inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt").to(device=device)
         
         # Generate captions
-        if hasattr(model, 'config') and hasattr(model.config, 'name_or_path') and 'florence' in model.config.name_or_path:
+        if is_florence:
             generated_ids = model.generate(
                 input_ids=inputs["input_ids"],
                 pixel_values=inputs["pixel_values"],
@@ -787,7 +796,10 @@ def check_ocr_box(image_source: Union[str, Image.Image], display_img=True, outpu
         if easyocr_args is None:
             easyocr_args = {}
         reader = get_ocr_reader()
-        result = reader.readtext(image_np, **easyocr_args)
+        # Suppress 'pin_memory' warning common on MPS with EasyOCR/PyTorch
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, message=".*pin_memory.*")
+            result = reader.readtext(image_np, **easyocr_args)
         coord = [item[0] for item in result]
         text = [item[1] for item in result]
     

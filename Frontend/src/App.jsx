@@ -336,8 +336,22 @@ function App() {
       prevNodes.forEach(node => {
         const labelMatch = node.data.label.toLowerCase().includes(query);
         const apiMatch = node.data.traffic?.some(req => req.url.toLowerCase().includes(query));
-        const parserMatch = node.data.parser?.parsedContentList?.some((item) =>
-          (item.content || '').toLowerCase().includes(query)
+
+        // Handle both old array and new Vision-First object structure
+        const mergedContent = node.data.parser?.mergedContent || [];
+        const elements = Array.isArray(mergedContent)
+          ? mergedContent
+          : (mergedContent.elements || []);
+
+        const parserMatch = elements.some((item) =>
+          // Old format fields
+          (item.text_content || '').toLowerCase().includes(query) ||
+          (item.description || '').toLowerCase().includes(query) ||
+          (item.role || '').toLowerCase().includes(query) ||
+          // New Vision-First format fields
+          (item.content || '').toLowerCase().includes(query) ||
+          (item.type || '').toLowerCase().includes(query) ||
+          (item.adb_attributes?.content_desc || '').toLowerCase().includes(query)
         );
 
         if (labelMatch || apiMatch || parserMatch) {

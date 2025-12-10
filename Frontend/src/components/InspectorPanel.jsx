@@ -7,8 +7,20 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
     if (!node) return null;
 
     const { data } = node;
-    const parserItems = data.parser?.parsedContentList || [];
-    const interactiveCount = parserItems.filter((item) => item.interactivity).length;
+    // Handle both old array format and new Vision-First object format
+    const mergedContent = data.parser?.mergedContent || [];
+    const parserItems = Array.isArray(mergedContent)
+        ? mergedContent  // Old format: direct array
+        : (mergedContent.elements || []);  // New Vision-First format: { screen_state, elements }
+
+    const screenState = Array.isArray(mergedContent)
+        ? null
+        : (mergedContent.screen_state || null);
+
+    // Count interactive elements (support both old and new field names)
+    const interactiveCount = parserItems.filter((item) =>
+        item.status?.clickable || item.adb_attributes?.clickable
+    ).length;
 
     return (
         <div className="absolute top-4 right-4 w-96 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden h-[calc(100vh-2rem)] z-50 animate-in slide-in-from-right-10 duration-200">
@@ -45,8 +57,8 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                 <button
                     onClick={() => setActiveTab('context')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'context'
-                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
                         } `}
                 >
                     Context
@@ -54,8 +66,8 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                 <button
                     onClick={() => setActiveTab('traffic')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'traffic'
-                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
                         } `}
                 >
                     Traffic ({data.traffic?.length || 0})
@@ -63,8 +75,8 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                 <button
                     onClick={() => setActiveTab('parser')}
                     className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'parser'
-                            ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/30 dark:bg-blue-900/20'
+                        : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
                         } `}
                 >
                     Parser ({parserItems.length || 0})
@@ -108,9 +120,9 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                                 <div key={idx} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:shadow-sm transition-shadow">
                                     <div className="flex items-center justify-between mb-2">
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${req.method === 'GET' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                req.method === 'POST' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                    req.method === 'DELETE' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                                                        'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                            req.method === 'POST' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                                req.method === 'DELETE' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                                    'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
                                             } `}>
                                             {req.method}
                                         </span>
@@ -146,6 +158,29 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                 )}
                 {activeTab === 'parser' && (
                     <div className="space-y-4">
+                        {/* Screen State Info (Vision-First only) */}
+                        {screenState && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                <h4 className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">Screen State</h4>
+                                <div className="flex items-center gap-2 text-xs">
+                                    {screenState.can_scroll_vertical ? (
+                                        <>
+                                            <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-semibold">
+                                                SCROLLABLE
+                                            </span>
+                                            <span className="text-gray-600 dark:text-gray-400">
+                                                {screenState.scrollable_areas?.length || 0} area(s)
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-semibold">
+                                            STATIC
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {parserItems.length > 0 ? (
                             <>
                                 <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
@@ -155,39 +190,89 @@ const InspectorPanel = ({ node, onClose, onDelete }) => {
                                     </span>
                                 </div>
                                 <div className="space-y-2">
-                                    {parserItems.map((item, idx) => (
-                                        <div
-                                            key={idx}
-                                            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-1"
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                                    {item.type || 'unknown'}
-                                                </span>
-                                                <span
-                                                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${item.interactivity
-                                                            ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-                                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                                                        } `}
-                                                >
-                                                    {item.interactivity ? 'Interactive' : 'Static'}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-gray-800 dark:text-gray-100">
-                                                {item.content || 'No content'}
-                                            </p>
-                                            <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 pt-1">
-                                                <span className="truncate max-w-[60%]">
-                                                    Source: {item.source || 'unknown'}
-                                                </span>
-                                                {Array.isArray(item.bbox) && item.bbox.length === 4 && (
-                                                    <span>
-                                                        bbox: {item.bbox.map((v) => v.toFixed ? v.toFixed(2) : v).join(', ')}
+                                    {parserItems.map((item, idx) => {
+                                        // Support both old and new field names
+                                        const displayType = item.type || item.role || 'Unknown';
+                                        const displayContent = item.content || item.text_content || '';
+                                        const displayDesc = item.adb_attributes?.content_desc || item.description || '';
+                                        const source = item.source || 'unknown';
+
+                                        return (
+                                            <div
+                                                key={item.uid || idx}
+                                                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2"
+                                            >
+                                                {/* Header: Type + Source Badge */}
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+                                                        {displayType}
                                                     </span>
+                                                    <span
+                                                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${source === 'merged' || source === 'vision_enriched'
+                                                                ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                                                                : source === 'adb'
+                                                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                                                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                                            }`}
+                                                    >
+                                                        {source === 'vision_enriched' ? 'V+ADB' : source}
+                                                    </span>
+                                                </div>
+
+                                                {/* Content */}
+                                                {displayContent && (
+                                                    <p className="text-xs text-gray-900 dark:text-gray-100 font-medium bg-gray-50 dark:bg-gray-900 p-2 rounded">
+                                                        {displayContent}
+                                                    </p>
+                                                )}
+
+                                                {/* Description */}
+                                                {displayDesc && (
+                                                    <p className="text-xs text-gray-600 dark:text-gray-400 italic">
+                                                        {displayDesc}
+                                                    </p>
+                                                )}
+
+                                                {/* Bounds */}
+                                                {Array.isArray(item.bounds) && item.bounds.length === 4 && (
+                                                    <div className="text-[9px] text-gray-500 dark:text-gray-500 font-mono">
+                                                        [{item.bounds.join(', ')}]
+                                                    </div>
+                                                )}
+
+                                                {/* Status Badges - Support both old (status) and new (adb_attributes) */}
+                                                {(item.status || item.adb_attributes) && (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {(item.status?.clickable || item.adb_attributes?.clickable) && (
+                                                            <span className="text-[8px] px-1 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-semibold">
+                                                                CLICK
+                                                            </span>
+                                                        )}
+                                                        {(item.status?.scrollable || item.adb_attributes?.scrollable) && (
+                                                            <span className="text-[8px] px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-semibold">
+                                                                SCROLL
+                                                            </span>
+                                                        )}
+                                                        {(item.status?.editable || item.adb_attributes?.editable) && (
+                                                            <span className="text-[8px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-semibold">
+                                                                EDIT
+                                                            </span>
+                                                        )}
+                                                        {(item.status?.checked || item.adb_attributes?.checked) && (
+                                                            <span className="text-[8px] px-1 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 font-semibold">
+                                                                ✓
+                                                            </span>
+                                                        )}
+                                                        {(item.status?.selected || item.adb_attributes?.selected) && (
+                                                            <span className="text-[8px] px-1 py-0.5 rounded bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400 font-semibold">
+                                                                SEL
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </>
                         ) : (

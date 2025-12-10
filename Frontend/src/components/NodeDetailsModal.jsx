@@ -5,11 +5,15 @@ const NodeDetailsModal = ({ node, onClose }) => {
     if (!node) return null;
 
     const { data } = node;
-    const parserItems = data.parser?.parsedContentList || [];
+    // Handle both old array format and new Vision-First object format
+    const mergedContent = data.parser?.mergedContent || [];
+    const parserItems = Array.isArray(mergedContent)
+        ? mergedContent
+        : (mergedContent.elements || []);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-900">
                     <div>
@@ -37,35 +41,33 @@ const NodeDetailsModal = ({ node, onClose }) => {
                             </p>
                         </div>
 
-                        {/* Two-column layout below description */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {/* Left Column: Screenshot & Annotated */}
-                            <div className="space-y-6">
-                                <div className="space-y-4">
-                                    <div>
-                                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3">
-                                            Screenshot
-                                        </h3>
-                                        <div className="w-full max-w-xs mx-auto bg-gray-100 dark:bg-gray-700 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 shadow-sm">
-                                            <img src={data.screenshot} alt={data.label} className="w-full h-auto object-contain" />
-                                        </div>
-                                    </div>
-
-                                    {data.annotatedScreenshot && (
-                                        <div>
-                                            <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3">
-                                                Annotated Screenshot
-                                            </h3>
-                                            <div className="w-full max-w-xs mx-auto bg-gray-100 dark:bg-gray-700 rounded-xl overflow-hidden border border-blue-200 dark:border-blue-800 shadow-sm">
-                                                <img src={data.annotatedScreenshot} alt={`${data.label} annotated`} className="w-full h-auto object-contain" />
-                                            </div>
-                                        </div>
-                                    )}
+                        {/* Screenshots side by side */}
+                        <div className={`grid gap-6 ${data.annotatedScreenshot ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                            {/* Screenshot */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3">
+                                    Screenshot
+                                </h3>
+                                <div className="w-full max-w-sm mx-auto bg-gray-100 dark:bg-gray-700 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-600 shadow-sm">
+                                    <img src={data.screenshot} alt={data.label} className="w-full h-auto object-contain" />
                                 </div>
                             </div>
 
-                            {/* Right Column: Traffic & Parser Details */}
-                            <div className="space-y-6">
+                            {/* Annotated Screenshot (displayed on the right side) */}
+                            {data.annotatedScreenshot && (
+                                <div>
+                                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider mb-3">
+                                        Annotated Screenshot
+                                    </h3>
+                                    <div className="w-full max-w-sm mx-auto bg-gray-100 dark:bg-gray-700 rounded-xl overflow-hidden border border-blue-200 dark:border-blue-800 shadow-sm">
+                                        <img src={data.annotatedScreenshot} alt={`${data.label} annotated`} className="w-full h-auto object-contain" />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Traffic & Parser Details below screenshots */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div>
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">Network Traffic</h3>
@@ -127,36 +129,94 @@ const NodeDetailsModal = ({ node, onClose }) => {
                                 </div>
                                 <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                                     {parserItems.length > 0 ? (
-                                        parserItems.map((item, idx) => (
-                                            <div key={idx} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-1">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                                        {item.type || 'unknown'}
-                                                    </span>
-                                                    <span
-                                                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${item.interactivity
-                                                            ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-                                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-                                                            }`}
-                                                    >
-                                                        {item.interactivity ? 'Interactive' : 'Static'}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-gray-800 dark:text-gray-100">
-                                                    {item.content || 'No content'}
-                                                </p>
-                                                <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400 pt-1">
-                                                    <span className="truncate max-w-[60%]">
-                                                        Source: {item.source || 'unknown'}
-                                                    </span>
-                                                    {Array.isArray(item.bbox) && item.bbox.length === 4 && (
-                                                        <span>
-                                                            bbox: {item.bbox.map((v) => v.toFixed ? v.toFixed(2) : v).join(', ')}
+                                        parserItems.map((item, idx) => {
+                                            // Support both old and new field names
+                                            const displayType = item.type || item.role || 'Unknown';
+                                            const displayContent = item.content || item.text_content || '';
+                                            const displayDesc = item.adb_attributes?.content_desc || item.description || '';
+                                            const source = item.source || 'unknown';
+
+                                            return (
+                                                <div key={item.uid || idx} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
+                                                    {/* Header: Source Badge + Type */}
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+                                                            {displayType}
                                                         </span>
+                                                        <span
+                                                            className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${source === 'merged' || source === 'vision_enriched'
+                                                                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                                                                    : source === 'adb'
+                                                                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                                                                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                                                }`}
+                                                        >
+                                                            {source === 'vision_enriched' ? 'V+ADB' : source}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Content */}
+                                                    {displayContent && (
+                                                        <div className="bg-gray-50 dark:bg-gray-900 p-2 rounded border border-gray-100 dark:border-gray-700">
+                                                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Text:</p>
+                                                            <p className="text-sm text-gray-900 dark:text-gray-100 font-medium">
+                                                                {displayContent}
+                                                            </p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Description */}
+                                                    {displayDesc && (
+                                                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                                                            <span className="font-medium">Desc:</span> {displayDesc}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Bounds */}
+                                                    {Array.isArray(item.bounds) && item.bounds.length === 4 && (
+                                                        <div className="text-[10px] text-gray-500 dark:text-gray-500 font-mono">
+                                                            Bounds: [{item.bounds.join(', ')}]
+                                                        </div>
+                                                    )}
+
+                                                    {/* Status/Actions - Support both old and new */}
+                                                    {(item.status || item.adb_attributes) && (
+                                                        <div className="flex flex-wrap gap-1 pt-1">
+                                                            {(item.status?.clickable || item.adb_attributes?.clickable) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-semibold">
+                                                                    CLICKABLE
+                                                                </span>
+                                                            )}
+                                                            {(item.status?.scrollable || item.adb_attributes?.scrollable) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 font-semibold">
+                                                                    SCROLLABLE
+                                                                </span>
+                                                            )}
+                                                            {(item.status?.editable || item.adb_attributes?.editable) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-semibold">
+                                                                    EDITABLE
+                                                                </span>
+                                                            )}
+                                                            {(item.status?.checked || item.adb_attributes?.checked) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 font-semibold">
+                                                                    CHECKED
+                                                                </span>
+                                                            )}
+                                                            {(item.status?.selected || item.adb_attributes?.selected) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400 font-semibold">
+                                                                    SELECTED
+                                                                </span>
+                                                            )}
+                                                            {(item.status?.enabled === false || item.adb_attributes?.enabled === false) && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400 font-semibold">
+                                                                    DISABLED
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     )}
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     ) : (
                                         <div className="text-center py-6 bg-gray-50 dark:bg-gray-900 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
                                             <p className="text-xs text-gray-400 dark:text-gray-500">No parser data available for this node.</p>
@@ -165,7 +225,6 @@ const NodeDetailsModal = ({ node, onClose }) => {
                                 </div>
                             </div>
                         </div>
-                    </div>
                     </div>
                 </div>
 
