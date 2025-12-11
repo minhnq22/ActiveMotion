@@ -9,7 +9,7 @@ Think of it as a relentless digital QA tester that never sleeps, captures every 
 ### The Architecture
 
 * **Brain:** Python (FastAPI) handling logic and ADB commands.
-* **Eyes:** Microsoft OmniParser + LLMs (OpenRoute) to detect UI elements.
+* **Eyes:** **Vision Engine** using OmniParser (YOLO + Florence-2) optimized for Apple Silicon (MPS).
 * **Memory:** SQLite with metadata caching (because storing raw HTML bodies is a bad time).
 * **Face:** Node.js + React Flow for a Figma-like interactive dashboard.
 * **Network:** Burp Suite Professional for capturing the dirty work happening under the hood.
@@ -25,58 +25,59 @@ This project is currently under heavy development.
 ## Quick Start
 
 ### Prerequisites
-- Python 3.9+
-- Node.js 16+ with npm
-- For ADB features: Android Debug Bridge (adb)
+- **OS**: macOS (optimized for Apple Silicon) or Linux.
+- **Python**: 3.10+
+- **Node.js**: 18+ with npm
+- **ADB**: Android Debug Bridge must be installed and accessible in your PATH.
+- **Device**: An Android device or emulator connected via ADB.
 
-### Step 1: Backend Setup
+### 🚀 One-Click Start
+
+We have a magical script that does everything for you (creates venv, installs dependencies, starts servers):
 
 ```bash
+./start.sh
+```
+
+The script will launch:
+- **Frontend**: http://localhost:5173
+- **Backend**: http://localhost:8000
+- **API Docs**: http://localhost:8000/docs
+
+### 🛠 Manual Setup (The "Hard" Way)
+
+If you prefer to type more commands:
+
+#### 1. Backend Setup
+```bash
 cd Backend
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-```
-
-### Step 2: Frontend Setup
-
-```bash
-cd Frontend
-npm install
-```
-
-### Step 3: Run Backend
-
-```bash
-cd Backend
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The API will be available at `http://localhost:8000`
-
-### Step 4: Run Frontend
-
-In a new terminal:
-
+#### 2. Frontend Setup
 ```bash
 cd Frontend
+npm install
 npm run dev
 ```
 
-The UI will open at `http://localhost:5173`
-
 ### Troubleshooting
 
-**Blank frontend screen?**
-- Ensure backend is running at `http://localhost:8000`
-- Check browser console (F12) for errors
-- The frontend will show an error message if the backend isn't accessible
+**Vision Engine not loading?**
+- This project uses **OmniParser** (YOLO detection + Florence-2 captioning).
+- On **macOS**, it automatically uses **MPS** (Metal Performance Shaders) for GPU acceleration.
+- Ensure you have a working internet connection on first run to download the model weights (unless they are already in `Backend/app/weights`).
 
-**Backend import errors?**
-- Make sure all dependencies in `requirements.txt` are installed
-- Some dependencies (torch, transformers) are large - first install may take time
+**ADB not found?**
+- Make sure you can run `adb devices` in your terminal.
+- If not, install via Homebrew: `brew install android-platform-tools`.
 
-**Port already in use?**
-- Frontend: Vite will try port 5173, then 5174, etc.
-- Backend: Change port with `--port 9000` in uvicorn command
+**Port usage?**
+- Backend defaults to `8000`.
+- Frontend defaults to `5173`.
 
 ### Author
 
